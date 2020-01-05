@@ -31,19 +31,22 @@ module JekyllRelativeLinks
       @site    = site
       @context = context
 
-      documents = site.pages
-      documents = site.pages + site.docs_to_write if collections?
+      @documents = site.pages
+      @documents = site.pages + site.docs_to_write if collections?
 
-      documents.each do |document|
-        next unless markdown_extension?(document.extname)
+      @documents.each do |document|
         next if document.is_a?(Jekyll::StaticFile)
         next if excluded?(document)
 
-        replace_relative_links!(document)
+        markdown_replace_relative_links!(document) if markdown_extension?(document.extname)
+      end
+
+      Jekyll::Hooks.register :pages, :post_render do |document|
+        html_replace_links!(document) if document.extname == ".html"
       end
     end
 
-    def replace_relative_links!(document)
+    def markdown_replace_relative_links!(document)
       url_base = File.dirname(document.relative_path)
       return document if document.content.nil?
 
@@ -59,6 +62,28 @@ module JekyllRelativeLinks
       end
     rescue ArgumentError => e
       raise e unless e.to_s.start_with?("invalid byte sequence in UTF-8")
+    end
+
+    def html_replace_links!(document)
+      doc = Nokogiri::HTML(document.output)
+
+      links = doc.xpath("//a")
+      modified = false
+
+      links.each do |link|
+        href = link.attr("href")
+
+        next if ! link['href'].end_with?(".md")
+
+        page = @documents.select { |doc| doc.relative_path.end_with?(href) }.first
+
+        next if page.nil?
+
+        link['href'] = page.url
+        modified = true
+      end
+
+      document.output = doc.to_html if modified
     end
 
     private
